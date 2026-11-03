@@ -17,8 +17,8 @@ Each company (tenant) has its own users, customers and tasks.
 ## Getting started
 
 ```bash
-npm install            # installs both workspaces and generates the Prisma client
 npm run setup          # creates apps/api/.env from .env.example
+npm install            # installs both workspaces and generates the Prisma client
 docker compose up -d   # starts PostgreSQL on localhost:5433
 npm run db:migrate     # applies Prisma migrations
 npm run db:seed        # loads demo tenants, users, customers and tasks
