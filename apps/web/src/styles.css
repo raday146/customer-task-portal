@@ -351,6 +351,7 @@ h2 {
   background: #eef1f6;
   color: var(--muted);
   vertical-align: middle;
+  white-space: nowrap;
 }
 .badge-open {
   background: var(--info-bg);

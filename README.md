@@ -122,6 +122,6 @@ apps/
 
 ## Troubleshooting
 
-- **Port 5433 in use:** change the host port in `docker-compose.yml` and `DATABASE_URL` in `apps/api/.env`.
+- **Port 5433 in use:** start Postgres with `POSTGRES_PORT=5434 docker compose up -d` and update the port in `DATABASE_URL` in `apps/api/.env`.
 - **`Can't reach database server`:** make sure `docker compose up -d` has finished (`docker compose ps` shows healthy).
 - **Signed out unexpectedly:** access tokens expire after 8 hours by default (`JWT_EXPIRES_IN`).

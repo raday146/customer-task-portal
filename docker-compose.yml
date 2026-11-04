@@ -1,14 +1,13 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: customer-task-portal-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: portal
       POSTGRES_PASSWORD: portal
       POSTGRES_DB: customer_task_portal
     ports:
-      - '5433:5432'
+      - '${POSTGRES_PORT:-5433}:5432'
     volumes:
       - portal_pgdata:/var/lib/postgresql/data
     healthcheck:
