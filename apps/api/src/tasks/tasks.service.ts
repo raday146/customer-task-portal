@@ -67,7 +67,7 @@ export class TasksService {
   async update(user: AuthUser, id: string, changes: UpdateTaskDto) {
     const existing = await this.prisma.task.findFirst({
       where: { id, tenantId: user.tenantId },
-      select: { id: true, assigneeId: true },
+      select: { id: true, assigneeId: true, dueDate: true },
     });
     if (!existing) throw new NotFoundException('Task not found');
 
@@ -81,6 +81,15 @@ export class TasksService {
 
     const referenceError = await this.findReferenceError(user.tenantId, changes);
     if (referenceError) throw new BadRequestException(referenceError);
+
+    const storedDay = existing.dueDate?.toISOString().slice(0, 10);
+    if (
+      changes.dueDate &&
+      changes.dueDate.slice(0, 10) !== storedDay &&
+      new Date(changes.dueDate) < startOfToday()
+    ) {
+      throw new TaskRuleError('Due date cannot be in the past');
+    }
 
     return this.prisma.task.update({
       where: { id },
