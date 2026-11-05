@@ -1,12 +1,12 @@
 # REVIEW.md - Customer Task Portal production-readiness review
 
-Branch: `review/fixes`. Every statement below was checked against the code, a live request, a test run or a browser session. Items I did not measure say so.
+Branches: `review/fixes` and `review/polish`. Every statement below was checked against the code, a live request, a test run or a browser session. Items I did not measure say so.
 
 ## 1. Executive summary
 
 The app is multi-tenant, so the property that matters most is tenant isolation: one company must never read or change another company's data. It was broken on two endpoints. `GET /customers/:id` and `PATCH /tasks/:id` looked records up by id only, so any logged-in user could read or modify another tenant's customer or task if they knew the id. `PATCH /tasks/:id` also accepted `tenantId`, `customerId` and `assigneeId` from the request body with no validation, because `UpdateTaskDto` was a TypeScript type alias, so the global `ValidationPipe` never ran on it. Separately, a plain user could edit any task in their company, and a failed login wrote the submitted password to the logs.
 
-I fixed four issues, each as a red test commit followed by a green fix commit. Remaining risks are in section 6.
+The top three findings plus the password-in-logs fix are on `review/fixes`. The smaller items (edit-form assignee, create error response, past due date on PATCH, dashboard N+1 and indexes, login limiter and dummy bcrypt compare) are on `review/polish`. Each is a test commit followed by a fix commit, except the indexes (see the follow-up section). Remaining risks are in section 6.
 
 Prioritisation: (a) breach of the stated access rule (README: data from other companies must never be visible or modifiable), (b) blast radius across tenants, (c) exploitable by any authenticated user with no tooling, then (d) integrity inside a tenant, (e) scalability and hygiene.
 
@@ -20,9 +20,9 @@ How I worked: ran the app locally on Node 20.19 with seeded data, read all of `a
 | 2 | Unvalidated PATCH body (foreign references, `tenantId` mass assignment, HTTP 500s) | Critical | Corrupts tenant data and leaks data through joins; trivially exploitable | Yes |
 | 3 | Any user can edit or reassign any task in their company | High | Breaks the documented role model; anyone can tamper with others' work | Yes |
 | 4 | Failed login logs the plaintext password | Medium | Credentials end up in log storage and with anyone who can read logs | Yes |
-| 5 | Dashboard N+1 queries, missing indexes, UTC overdue logic (see section 6) | Medium | Slow pages as data grows; wrong overdue counts | No |
-| 6 | No login rate limiting, possible login timing leak (from code reading), token in localStorage (see section 6) | Medium | Brute force and email enumeration are easy; XSS becomes account takeover | No |
-| 7 | Web edit form silently assigns unassigned tasks to the editor; create returns 201 with success:false (see section 6) | Low-Medium | Silent data changes and client-side confusion | No |
+| 5 | Dashboard N+1 queries, missing indexes, UTC overdue logic (see follow-up fixes and section 6) | Medium | Slow pages as data grows; wrong overdue counts | Partly - N+1 and indexes fixed; UTC overdue logic not |
+| 6 | No login rate limiting, possible login timing leak (from code reading), token in localStorage (see follow-up fixes and section 6) | Medium | Brute force and email enumeration are easy; XSS becomes account takeover | Partly - rate limit and timing fixed; localStorage not |
+| 7 | Web edit form silently assigns unassigned tasks to the editor; create returns 201 with success:false (see follow-up fixes) | Low-Medium | Silent data changes and client-side confusion | Yes |
 
 ### Finding 1 - Cross-tenant read/write by id
 - **Where (before fix):** `apps/api/src/customers/customers.service.ts:45-52` (`findUnique({ where: { id } })`), `apps/api/src/tasks/tasks.service.ts:73-75` (same for update); controllers did not pass the tenant (`customers.controller.ts:20`, `tasks.controller.ts:49`).
@@ -45,7 +45,7 @@ How I worked: ran the app locally on Node 20.19 with seeded data, read all of `a
 
 ## 3. Prioritisation rationale
 
-Findings 1 and 2 break the README's non-negotiable rule, are exploitable by any authenticated user, and affect every tenant, so they came first. Finding 3 is a documented requirement and affects integrity inside a tenant. Finding 4 is a small, cheap fix with a clear confidentiality impact. Items in section 6 were left for the timebox. Order is severity first, then ease of exploitation.
+Findings 1 and 2 break the README's non-negotiable rule, are exploitable by any authenticated user, and affect every tenant, so they came first. Finding 3 is a documented requirement and affects integrity inside a tenant. Finding 4 is a small, cheap fix with a clear confidentiality impact. The remaining items were done afterwards on `review/polish` where safe. What is left (localStorage token, UTC overdue logic and the others in section 6) was deliberately left, with reasons in section 6. Order is severity first, then ease of exploitation.
 
 ## 4. Fixes
 
@@ -56,7 +56,7 @@ Findings 1 and 2 break the README's non-negotiable rule, are exploitable by any 
 
 ### Fix 2 - Validate references and whitelist update payload (`2c03d51`)
 - **Change:** `UpdateTaskDto` is now `class UpdateTaskDto extends PartialType(CreateTaskDto)` (`@nestjs/mapped-types`, already a dependency), so the existing global `ValidationPipe` (`whitelist` + `forbidNonWhitelisted`) applies. `customerId` and `assigneeId` are checked against the caller's tenant by a private helper shared with `create()`; update returns 400 on failure. The Prisma data object is built field by field.
-- **Trade-off:** up to two small lookups per write. `create()` keeps its existing response shape (see section 6).
+- **Trade-off:** up to two small lookups per write. `create()` originally returned 201 with success:false; that was changed afterwards, see follow-up (b).
 
 ### Fix 3 - Ownership rule (`134a8d4`)
 - **Change:** after the tenant lookup (404), a non-admin gets 403 unless `task.assigneeId === user.id`, and also gets 403 if the request changes `assigneeId` to a different value. The same value sent back unchanged is allowed. Admins may update any task in their tenant. Delete stays admin-only.
@@ -90,9 +90,9 @@ New e2e tests create their own tenants, users, customers and tasks (`apps/api/te
 | `apps/api/test/task-permissions.e2e-spec.ts` | 8: user edits own task, unchanged `assigneeId` accepted, foreign-assigned and unassigned tasks 403, reassign 403, delete 403, cross-tenant 404 before 403, admin can edit, assign and delete | 3 failed with 200 where 403 expected (edit someone else's task, complete an unassigned task, reassign own task). 5 passed: allowed paths and guards that already worked |
 | `apps/api/src/auth/auth.service.spec.ts` (new case) | logger-spy: failed login must not log the submitted password | Failed: the captured warning contained the password |
 
-Final results after all fixes (Node 20.19.0):
+Final results after all fixes (Node 20.19 and 22):
 
-- `npm test`: API 5 suites, 40 tests passed (11 existing + 29 new); web 2 files, 4 tests passed.
+- `npm test`: API 10 suites, 59 tests passed; web 3 files, 8 tests passed (fresh run after the follow-up fixes).
 - `npm run lint`: exit 0.
 - `npm run typecheck`: exit 0.
 - `npm run build`: exit 0 (API `nest build`, web `tsc -b && vite build`).
@@ -104,21 +104,50 @@ Ran the API and web app locally and exercised the UI as `admin@northstar.test` a
 - **Maya (USER):** the Tasks page showed Edit/Complete only on her own tasks and no Delete button. Editing her own task sent the full form payload including her own `assigneeId` unchanged, and returned 200. Complete returned 200. Customer Previous/Next worked. From her session, API calls to PATCH Daniel's task, DELETE her own task and reassign her own task to Daniel returned 403.
 - **Web form payload on PATCH** (`apps/web/src/components/TaskFormModal.tsx:48-53`): the form sends `title, description, customerId, assigneeId, status, dueDate`. "Unassigned" is `assigneeId: null`; an empty due date is `dueDate: null`; a set date is `YYYY-MM-DD`. All of these pass the new validation (`IsOptional` allows null; `IsUUID`, `IsEnum`, `IsDateString` accept the rest). The "Complete" buttons send only `{"status":"DONE"}`.
 
-## 6. Remaining production risks (not fixed)
+This browser check was done on `review/fixes`. The follow-up fixes on `review/polish` are covered by automated tests.
+
+## Follow-up fixes (branch review/polish)
+
+`review/polish` is branched from `review/fixes`, which is already merged into `main` through PR #1. `main` is the core three-fix submission; `review/polish` adds the smaller follow-up fixes.
+
+New tests on this branch:
+- `apps/web/src/components/TaskFormModal.test.tsx`
+- `apps/api/test/dashboard.e2e-spec.ts`
+- `apps/api/test/dashboard-queries.e2e-spec.ts`
+- `apps/api/test/login-rate-limit.e2e-spec.ts`
+- `apps/api/test/task-create-errors.e2e-spec.ts`
+- `apps/api/test/task-update-due-date.e2e-spec.ts`
+- `apps/api/src/auth/auth.service.spec.ts` (new bcrypt spy case: `bcrypt.compare` runs for unknown emails)
+
+Items (a)-(d) and (f) are a red test commit followed by a fix commit; (e) is a single schema/migration commit.
+
+### (a) Edit form no longer assigns the editor on edit (`95a9fe7`, `87ec666`)
+- The form defaults `assigneeId` to the current user only when creating. Editing an unassigned task keeps it unassigned.
+
+### (b) Create returns 400 instead of 201 with success:false (`fa3718f`, `1202f3e`, `97924dd`)
+- A rejected `POST /tasks` now returns 400 with the standard error shape. This is an intentional API contract change. The web client's `success:false` handling was removed, the error path is tested, and no existing tests were changed.
+
+### (c) PATCH rejects a changed past due date (`9e48e2b`, `74a0d39`)
+- A changed past `dueDate` returns 400. Unchanged overdue dates, null, and today/future dates are allowed.
+
+### (d) Dashboard query rewrite (`929c74b`, `73b4d70`)
+- On `seed:large`: before 1,516 SQL queries and median 0.974 s; after 7 queries and median 0.023 s. Query counts came from a script calling the service; latency from 5 curl runs, same method before and after.
+- One behaviour change: upcoming tasks with equal due dates are now ordered by id.
+
+### (e) Task indexes (`bc24f14`, migration `add_task_indexes`)
+- Three indexes: tenant+assignee, tenant+customer, tenant+dueDate. At ~6,100 rows EXPLAIN still shows a sequential scan. The speedup in (d) comes from the query rewrite, not the indexes. The indexes are for growth and selective filters and were not shown to help at this size.
+
+### (f) Failed-login limiter and timing (`217a034`, `bb00bcb`, `00173f9`, `6e95970`)
+- 5 failed attempts per 15 minutes, keyed by ip+email, returns 429. Only failed attempts count. Unknown emails are treated like known ones. Config: `LOGIN_MAX_ATTEMPTS` and `LOGIN_WINDOW_MS`.
+- Login now runs a dummy `bcrypt.compare` for unknown emails, so the bcrypt step no longer depends on whether the email exists.
+
+## 6. Remaining production risks (after the follow-up fixes)
 
 Verified:
-- **Web form reassigns on edit** (`TaskFormModal.tsx:30`, `assigneeId: task?.assigneeId ?? user?.id`): opening Edit on an unassigned task and saving sends the editing user's id. I saw this happen in the browser: an unassigned task became assigned to the admin. Not caused by these changes, not fixed.
-- **`POST /tasks` returns HTTP 201 with `{"success":false,"error":...}`** when a reference is invalid (`tasks.controller.ts:41-43`). Clients that check only the status see success. The web client handles it explicitly. Left as is.
-- **Past due date accepted on PATCH:** `create()` rejects past dates (`tasks.service.ts:55`), `update()` does not (PATCH with 2020-01-01 returned 200). This also lets overdue tasks be edited from the UI, so it may be intentional.
-- **No login rate limiting:** 15 consecutive wrong-password logins all returned 401.
-- **Token stored in `localStorage`** (`apps/web/src/api/client.ts:14-29`).
-- **Dashboard N+1:** `dashboard.service.ts:41-45` runs one task query per customer and filters in memory. I did not run `seed:large` or measure latency.
-- **Missing indexes:** `Task` has only `@@index([tenantId, status])` (`schema.prisma:78`); nothing on `customerId`, `assigneeId` or `dueDate`.
-- **Overdue logic:** `dashboard.service.ts:48` compares `dueDate < now` in UTC, so a date-only value counts as overdue after UTC midnight.
+- **Token stored in `localStorage`** (`apps/web/src/api/client.ts:14-29`). Moving to httpOnly cookies needs CORS credentials, CSRF protection, a logout endpoint and web changes, which is a larger auth redesign than this timebox.
+- **Overdue logic:** `dashboard.service.ts` compares `dueDate < now` in UTC, so a date-only value counts as overdue after UTC midnight.
 - **`null` for `title`, `status` or `customerId` on PATCH** passes validation (`IsOptional` skips null) and is ignored by the service.
-
-From code reading, not measured:
-- Login skips bcrypt when the email does not exist (`auth.service.ts:28`), so response time may reveal registered emails. The error message itself is identical.
+- **Login limiter limitations:** single-instance in-memory store (not shared across instances or restarts); fixed window, not sliding; no size cap on the map within the window; needs `trust proxy` behind a proxy or all clients share the proxy IP; users behind one shared IP (NAT) share the failed-attempt budget for the same email.
 
 Checked and not an issue:
 - Pagination is capped (`pageSize` max 100; `pageSize=100000` returns 400).
@@ -133,10 +162,9 @@ General: tenant scoping relies on each query passing `tenantId`. A future query 
 ### If I had another day
 
 1. Make tenant scoping structural with a Prisma extension or scoped repository that injects `tenantId`, then add Postgres row-level security as defence in depth.
-2. Add login throttling (for example @nestjs/throttler), a dummy bcrypt compare for unknown emails, and httpOnly cookies or short-lived tokens instead of localStorage.
-3. Replace the dashboard per-customer queries with groupBy and add indexes on customerId, assigneeId and dueDate; measure with `npm run seed:large` first.
-4. Default assigneeId to the current user only when creating (not editing) in TaskFormModal.tsx, and return a proper 400 from create instead of 201 with success:false.
+2. Shared-store rate limiting (for example Redis) plus httpOnly cookies or short-lived tokens.
+3. Check the new indexes with EXPLAIN on selective queries (assigneeId, customerId) and at a larger data size.
 
 ## 7. AI usage
 
-I chose the top three from the README's access rules. I used Claude (chat for analysis and planning, Claude Code for probing, writing tests and implementing fixes). I reviewed each diff and the test and browser-check results. An early AI assessment wrongly marked PATCH mass assignment as not present, and the red test run corrected it.
+I chose the top three from the README's access rules. I used Claude (chat for analysis and planning, Claude Code for probing, writing tests and implementing fixes). I reviewed each diff and the test and browser-check results. An early AI assessment wrongly marked PATCH mass assignment as not present, and the red test run corrected it. The follow-up fixes on `review/polish` were also done with TDD and reviewed by me.
