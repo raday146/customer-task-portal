@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuthUser, Paginated } from '../common/types';
 import { PrismaService } from '../prisma/prisma.service';
@@ -62,9 +67,17 @@ export class TasksService {
   async update(user: AuthUser, id: string, changes: UpdateTaskDto) {
     const existing = await this.prisma.task.findFirst({
       where: { id, tenantId: user.tenantId },
-      select: { id: true },
+      select: { id: true, assigneeId: true },
     });
     if (!existing) throw new NotFoundException('Task not found');
+
+    if (user.role !== 'ADMIN') {
+      const reassigns =
+        changes.assigneeId !== undefined && changes.assigneeId !== existing.assigneeId;
+      if (existing.assigneeId !== user.id || reassigns) {
+        throw new ForbiddenException('You do not have permission to change this task');
+      }
+    }
 
     const referenceError = await this.findReferenceError(user.tenantId, changes);
     if (referenceError) throw new BadRequestException(referenceError);
