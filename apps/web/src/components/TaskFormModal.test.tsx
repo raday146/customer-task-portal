@@ -78,3 +78,40 @@ describe('TaskFormModal assignee', () => {
     expect(body.assigneeId).toBe('u-1');
   });
 });
+
+describe('TaskFormModal create failure', () => {
+  it('shows the server message and keeps the modal open', async () => {
+    const onSaved = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(input), 'http://localhost').pathname;
+        if (init?.method === 'POST') {
+          return new Response(
+            JSON.stringify({
+              statusCode: 400,
+              error: 'Bad Request',
+              message: 'Due date cannot be in the past',
+            }),
+            { status: 400, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        const body = path.endsWith('/users') ? team : customers;
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    render(
+      <ToastProvider>
+        <TaskFormModal onClose={vi.fn()} onSaved={onSaved} />
+      </ToastProvider>,
+    );
+    await screen.findByRole('option', { name: 'Ben Park' });
+    await userEvent.type(screen.getByLabelText('Title'), 'New one');
+    await userEvent.selectOptions(screen.getByLabelText('Customer'), 'c-1');
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+
+    expect(await screen.findByText('Due date cannot be in the past')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+});
