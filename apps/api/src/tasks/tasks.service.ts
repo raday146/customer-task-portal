@@ -70,8 +70,11 @@ export class TasksService {
     });
   }
 
-  async update(id: string, changes: UpdateTaskDto) {
-    const existing = await this.prisma.task.findUnique({ where: { id }, select: { id: true } });
+  async update(user: AuthUser, id: string, changes: UpdateTaskDto) {
+    const existing = await this.prisma.task.findFirst({
+      where: { id, tenantId: user.tenantId },
+      select: { id: true },
+    });
     if (!existing) throw new NotFoundException('Task not found');
 
     return this.prisma.task.update({
