@@ -27,7 +27,7 @@ export function TaskFormModal({ task, defaultCustomerId, onClose, onSaved }: Pro
     title: task?.title ?? '',
     description: task?.description ?? '',
     customerId: task?.customerId ?? defaultCustomerId ?? '',
-    assigneeId: task?.assigneeId ?? user?.id ?? null,
+    assigneeId: task ? task.assigneeId : (user?.id ?? null),
     status: task?.status ?? 'OPEN',
     dueDate: toDateInput(task?.dueDate),
   });
