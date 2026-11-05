@@ -30,8 +30,34 @@ export class DashboardService {
     const customers = await this.prisma.customer.findMany({
       where: { tenantId },
       select: { id: true, name: true, status: true },
-      orderBy: { name: 'asc' },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
     });
+
+    const [openGroups, overdueGroups, doneGroups] = await Promise.all([
+      this.prisma.task.groupBy({
+        by: ['customerId'],
+        where: { tenantId, status: { in: OPEN_STATUSES } },
+        _count: { _all: true },
+        orderBy: { customerId: 'asc' },
+      }),
+      this.prisma.task.groupBy({
+        by: ['customerId'],
+        where: { tenantId, status: { in: OPEN_STATUSES }, dueDate: { lt: now } },
+        _count: { _all: true },
+        orderBy: { customerId: 'asc' },
+      }),
+      this.prisma.task.groupBy({
+        by: ['customerId'],
+        where: { tenantId, status: { notIn: OPEN_STATUSES } },
+        _count: { _all: true },
+        orderBy: { customerId: 'asc' },
+      }),
+    ]);
+    const toMap = (groups: { customerId: string; _count: { _all: number } }[]) =>
+      new Map(groups.map((g) => [g.customerId, g._count._all]));
+    const openBy = toMap(openGroups);
+    const overdueBy = toMap(overdueGroups);
+    const doneBy = toMap(doneGroups);
 
     let openTasks = 0;
     let completedTasks = 0;
@@ -39,28 +65,22 @@ export class DashboardService {
     const summaries: CustomerSummary[] = [];
 
     for (const customer of customers) {
-      const tasks = await this.prisma.task.findMany({
-        where: { customerId: customer.id },
-        select: { status: true, dueDate: true },
-      });
-
-      const open = tasks.filter((t) => OPEN_STATUSES.includes(t.status));
-      const overdue = open.filter((t) => t.dueDate && t.dueDate < now);
-
-      openTasks += open.length;
-      overdueTasks += overdue.length;
-      completedTasks += tasks.length - open.length;
+      const open = openBy.get(customer.id) ?? 0;
+      const overdue = overdueBy.get(customer.id) ?? 0;
+      openTasks += open;
+      overdueTasks += overdue;
+      completedTasks += doneBy.get(customer.id) ?? 0;
       summaries.push({
         id: customer.id,
         name: customer.name,
-        openTasks: open.length,
-        overdueTasks: overdue.length,
+        openTasks: open,
+        overdueTasks: overdue,
       });
     }
 
     const upcomingTasks = await this.prisma.task.findMany({
       where: { tenantId, status: { in: OPEN_STATUSES } },
-      orderBy: { dueDate: { sort: 'asc', nulls: 'last' } },
+      orderBy: [{ dueDate: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }],
       take: 8,
       include: {
         customer: { select: { id: true, name: true } },

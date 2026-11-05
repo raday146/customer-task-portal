@@ -27,7 +27,7 @@ export function TaskFormModal({ task, defaultCustomerId, onClose, onSaved }: Pro
     title: task?.title ?? '',
     description: task?.description ?? '',
     customerId: task?.customerId ?? defaultCustomerId ?? '',
-    assigneeId: task?.assigneeId ?? user?.id ?? null,
+    assigneeId: task ? task.assigneeId : (user?.id ?? null),
     status: task?.status ?? 'OPEN',
     dueDate: toDateInput(task?.dueDate),
   });
@@ -57,13 +57,9 @@ export function TaskFormModal({ task, defaultCustomerId, onClose, onSaved }: Pro
         toast('Task updated');
         onSaved(saved);
       } else {
-        const result = await api.createTask(payload);
-        if ('error' in result) {
-          toast(result.error, 'error');
-          return;
-        }
+        const created = await api.createTask(payload);
         toast('Task created');
-        onSaved(result);
+        onSaved(created);
       }
     } catch (err) {
       toast((err as Error).message, 'error');

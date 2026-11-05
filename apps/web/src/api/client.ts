@@ -95,7 +95,7 @@ export const api = {
 
   tasks: (query: TaskQuery = {}) => request<Paginated<Task>>(`/tasks${qs({ ...query })}`),
   createTask: (input: TaskInput) =>
-    request<Task | { success: false; error: string }>('/tasks', {
+    request<Task>('/tasks', {
       method: 'POST',
       body: JSON.stringify(input),
     }),

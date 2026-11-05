@@ -1,9 +1,16 @@
 import { Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from './auth.service';
+
+// Pass-through spy: real bcrypt behaviour, but calls are observable.
+jest.mock('bcryptjs', () => {
+  const actual = jest.requireActual<typeof import('bcryptjs')>('bcryptjs');
+  return { ...actual, compare: jest.fn(actual.compare) };
+});
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -29,6 +36,7 @@ describe('AuthService', () => {
         AuthService,
         { provide: PrismaService, useValue: prisma },
         { provide: JwtService, useValue: jwt },
+        { provide: ConfigService, useValue: { get: (_k: string, d: unknown) => d } },
       ],
     }).compile();
     service = moduleRef.get(AuthService);
@@ -37,7 +45,10 @@ describe('AuthService', () => {
   it('returns a token and profile for valid credentials', async () => {
     prisma.user.findUnique.mockResolvedValue(user);
 
-    const result = await service.login({ email: 'Admin@Northstar.test', password: 'DemoPass123!' });
+    const result = await service.login(
+      { email: 'Admin@Northstar.test', password: 'DemoPass123!' },
+      '1.1.1.1',
+    );
 
     expect(prisma.user.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { email: 'admin@northstar.test' } }),
@@ -61,7 +72,7 @@ describe('AuthService', () => {
   it('rejects an incorrect password', async () => {
     prisma.user.findUnique.mockResolvedValue(user);
     await expect(
-      service.login({ email: 'admin@northstar.test', password: 'wrong-password' }),
+      service.login({ email: 'admin@northstar.test', password: 'wrong-password' }, '1.1.1.1'),
     ).rejects.toBeInstanceOf(UnauthorizedException);
     expect(jwt.signAsync).not.toHaveBeenCalled();
   });
@@ -73,7 +84,7 @@ describe('AuthService', () => {
     prisma.user.findUnique.mockResolvedValue(user);
 
     await expect(
-      service.login({ email: 'admin@northstar.test', password: secret }),
+      service.login({ email: 'admin@northstar.test', password: secret }, '1.1.1.1'),
     ).rejects.toBeInstanceOf(UnauthorizedException);
 
     const logged = JSON.stringify([...warn.mock.calls, ...log.mock.calls]);
@@ -86,7 +97,18 @@ describe('AuthService', () => {
   it('rejects an unknown email', async () => {
     prisma.user.findUnique.mockResolvedValue(null);
     await expect(
-      service.login({ email: 'nobody@example.test', password: 'whatever' }),
+      service.login({ email: 'nobody@example.test', password: 'whatever' }, '1.1.1.1'),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('still runs bcrypt.compare when the email does not exist (no timing oracle)', async () => {
+    const compare = bcrypt.compare as unknown as jest.Mock;
+    prisma.user.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.login({ email: 'nobody@example.test', password: 'whatever' }, '1.1.1.1'),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(compare).toHaveBeenCalledTimes(1);
   });
 });
