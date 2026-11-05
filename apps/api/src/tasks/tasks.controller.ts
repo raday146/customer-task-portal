@@ -20,7 +20,6 @@ import { AuthUser } from '../common/types';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { ListTasksQuery } from './dto/list-tasks.query';
 import { UpdateTaskDto } from './dto/update-task.dto';
-import { TaskRuleError } from './task-rule.error';
 import { TasksService } from './tasks.service';
 
 @Controller('tasks')
@@ -34,15 +33,8 @@ export class TasksController {
   }
 
   @Post()
-  async create(@CurrentUser() user: AuthUser, @Body() dto: CreateTaskDto) {
-    try {
-      return await this.tasksService.create(user, dto);
-    } catch (err) {
-      if (err instanceof TaskRuleError) {
-        return { success: false, error: err.message };
-      }
-      throw err;
-    }
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateTaskDto) {
+    return this.tasksService.create(user, dto);
   }
 
   @Patch(':id')
