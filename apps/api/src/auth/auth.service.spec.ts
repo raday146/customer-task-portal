@@ -6,6 +6,12 @@ import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from './auth.service';
 
+// Pass-through spy: real bcrypt behaviour, but calls are observable.
+jest.mock('bcryptjs', () => {
+  const actual = jest.requireActual<typeof import('bcryptjs')>('bcryptjs');
+  return { ...actual, compare: jest.fn(actual.compare) };
+});
+
 describe('AuthService', () => {
   let service: AuthService;
   const prisma = { user: { findUnique: jest.fn() } };
@@ -93,5 +99,16 @@ describe('AuthService', () => {
     await expect(
       service.login({ email: 'nobody@example.test', password: 'whatever' }, '1.1.1.1'),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('still runs bcrypt.compare when the email does not exist (no timing oracle)', async () => {
+    const compare = bcrypt.compare as unknown as jest.Mock;
+    prisma.user.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.login({ email: 'nobody@example.test', password: 'whatever' }, '1.1.1.1'),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(compare).toHaveBeenCalledTimes(1);
   });
 });
