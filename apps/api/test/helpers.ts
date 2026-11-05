@@ -1,5 +1,5 @@
 import { INestApplication, Logger } from '@nestjs/common';
-import { Role, Task, TaskStatus } from '@prisma/client';
+import { CustomerStatus, Role, Task, TaskStatus } from '@prisma/client';
 import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
@@ -37,8 +37,10 @@ export class TestWorld {
     readonly b: TestTenant,
   ) {}
 
-  static async create(): Promise<TestWorld> {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+  static async create(prismaOverride?: typeof PrismaService): Promise<TestWorld> {
+    const builder = Test.createTestingModule({ imports: [AppModule] });
+    if (prismaOverride) builder.overrideProvider(PrismaService).useClass(prismaOverride);
+    const moduleRef = await builder.compile();
     const app = configureApp(moduleRef.createNestApplication({ logger: false }));
     Logger.overrideLogger(false);
     await app.init();
@@ -79,6 +81,17 @@ export class TestWorld {
     };
   }
 
+  makeCustomer(
+    tenant: TestTenant,
+    name: string,
+    status: CustomerStatus = 'ACTIVE',
+  ): Promise<{ id: string; name: string }> {
+    return this.prisma.customer.create({
+      data: { tenantId: tenant.id, name, email: `${randomUUID()}@cust.test`, status },
+      select: { id: true, name: true },
+    });
+  }
+
   makeTask(
     tenant: TestTenant,
     data: {
@@ -86,6 +99,7 @@ export class TestWorld {
       customerId?: string;
       status?: TaskStatus;
       title?: string;
+      dueDate?: Date | null;
     } = {},
   ): Promise<Task> {
     return this.prisma.task.create({
@@ -95,6 +109,7 @@ export class TestWorld {
         assigneeId: data.assigneeId === undefined ? null : data.assigneeId,
         title: data.title ?? `task-${randomUUID().slice(0, 8)}`,
         status: data.status ?? 'OPEN',
+        dueDate: data.dueDate ?? null,
       },
     });
   }
