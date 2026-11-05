@@ -81,7 +81,12 @@ export class TestWorld {
 
   makeTask(
     tenant: TestTenant,
-    data: { assigneeId?: string | null; customerId?: string; status?: TaskStatus; title?: string } = {},
+    data: {
+      assigneeId?: string | null;
+      customerId?: string;
+      status?: TaskStatus;
+      title?: string;
+    } = {},
   ): Promise<Task> {
     return this.prisma.task.create({
       data: {
