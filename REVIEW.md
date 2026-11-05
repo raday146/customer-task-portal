@@ -14,13 +14,15 @@ How I worked: ran the app locally on Node 20.19 with seeded data, read all of `a
 
 ## 2. Findings, ranked
 
-| # | Issue | Severity | Fixed? |
-|---|-------|----------|--------|
-| 1 | Cross-tenant read and write by id: `GET /customers/:id`, `PATCH /tasks/:id` | Critical | Yes |
-| 2 | `PATCH /tasks/:id` unvalidated body: foreign `customerId`/`assigneeId` accepted, `tenantId`/`id` mass-assigned, `createdById`/`role` caused HTTP 500 | Critical | Yes |
-| 3 | Any user could edit or complete any task in their company, and reassign tasks | High | Yes |
-| 4 | Failed login logged the submitted password in plaintext | Medium | Yes |
-| 5 | Remaining items in section 6 | Low-Medium | No |
+| # | Issue | Severity | Business impact | Fixed? |
+|---|-------|----------|-----------------|--------|
+| 1 | Cross-tenant read and write by id (`GET /customers/:id`, `PATCH /tasks/:id`) | Critical | Confidentiality breach across every customer company; contractual and regulatory exposure | Yes |
+| 2 | Unvalidated PATCH body (foreign references, `tenantId` mass assignment, HTTP 500s) | Critical | Corrupts tenant data and leaks data through joins; trivially exploitable | Yes |
+| 3 | Any user can edit or reassign any task in their company | High | Breaks the documented role model; anyone can tamper with others' work | Yes |
+| 4 | Failed login logs the plaintext password | Medium | Credentials end up in log storage and with anyone who can read logs | Yes |
+| 5 | Dashboard N+1 queries, missing indexes, UTC overdue logic (see section 6) | Medium | Slow pages as data grows; wrong overdue counts | No |
+| 6 | No login rate limiting, possible login timing leak (from code reading), token in localStorage (see section 6) | Medium | Brute force and email enumeration are easy; XSS becomes account takeover | No |
+| 7 | Web edit form silently assigns unassigned tasks to the editor; create returns 201 with success:false (see section 6) | Low-Medium | Silent data changes and client-side confusion | No |
 
 ### Finding 1 - Cross-tenant read/write by id
 - **Where (before fix):** `apps/api/src/customers/customers.service.ts:45-52` (`findUnique({ where: { id } })`), `apps/api/src/tasks/tasks.service.ts:73-75` (same for update); controllers did not pass the tenant (`customers.controller.ts:20`, `tasks.controller.ts:49`).
@@ -43,7 +45,7 @@ How I worked: ran the app locally on Node 20.19 with seeded data, read all of `a
 
 ## 3. Prioritisation rationale
 
-Findings 1 and 2 break the README's non-negotiable rule, are exploitable by any authenticated user, and affect every tenant, so they came first. Finding 3 is a documented requirement and affects integrity inside a tenant. Finding 4 is a small, cheap fix with a clear confidentiality impact. Items in section 6 were left for the timebox.
+Findings 1 and 2 break the README's non-negotiable rule, are exploitable by any authenticated user, and affect every tenant, so they came first. Finding 3 is a documented requirement and affects integrity inside a tenant. Finding 4 is a small, cheap fix with a clear confidentiality impact. Items in section 6 were left for the timebox. Order is severity first, then ease of exploitation.
 
 ## 4. Fixes
 
@@ -128,6 +130,13 @@ Checked and not an issue:
 
 General: tenant scoping relies on each query passing `tenantId`. A future query that forgets it reintroduces finding 1. There is no database-level isolation.
 
+### If I had another day
+
+1. Make tenant scoping structural with a Prisma extension or scoped repository that injects `tenantId`, then add Postgres row-level security as defence in depth.
+2. Add login throttling (for example @nestjs/throttler), a dummy bcrypt compare for unknown emails, and httpOnly cookies or short-lived tokens instead of localStorage.
+3. Replace the dashboard per-customer queries with groupBy and add indexes on customerId, assigneeId and dueDate; measure with `npm run seed:large` first.
+4. Default assigneeId to the current user only when creating (not editing) in TaskFormModal.tsx, and return a proper 400 from create instead of 201 with success:false.
+
 ## 7. AI usage
 
-I used Claude Code to read the code, probe the endpoints, write the failing tests and implement the fixes. Findings 1-4 each have a red commit before the fix commit, and the Phase 0 report was corrected once during testing: mass assignment on PATCH, first marked not present, was confirmed by the red test run.
+I chose the top three from the README's access rules. I used Claude (chat for analysis and planning, Claude Code for probing, writing tests and implementing fixes). I reviewed each diff and the test and browser-check results. An early AI assessment wrongly marked PATCH mass assignment as not present, and the red test run corrected it.
