@@ -1,6 +1,6 @@
 # REVIEW.md - Customer Task Portal production-readiness review
 
-Branches: `review/fixes` and `review/polish`. Every statement below was checked against the code, a live request, a test run or a browser session. Items I did not measure say so.
+Branches: `review/fixes` (PR #1) and `review/polish` (PR #2), both merged into `main`. Every statement below was checked against the code, a live request, a test run or a browser session. Items I did not measure say so.
 
 ## 1. Executive summary
 
@@ -108,7 +108,7 @@ This browser check was done on `review/fixes`. The follow-up fixes on `review/po
 
 ## Follow-up fixes (branch review/polish)
 
-`review/polish` is branched from `review/fixes`, which is already merged into `main` through PR #1. `main` is the core three-fix submission; `review/polish` adds the smaller follow-up fixes.
+The core three-fix work was merged into `main` in PR #1. The smaller follow-up fixes below were built on top of it on `review/polish` and merged in PR #2, so `main` contains everything. The failing-test-then-fix commit pairs are preserved in the history.
 
 New tests on this branch:
 - `apps/web/src/components/TaskFormModal.test.tsx`
