@@ -5,11 +5,15 @@ import {
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
+
+// Valid bcrypt hash of a random string; never matches a real password.
+const DUMMY_HASH = bcrypt.hashSync(randomUUID(), 10);
 
 export interface JwtPayload {
   sub: string;
@@ -45,7 +49,8 @@ export class AuthService {
       include: { tenant: true },
     });
 
-    const valid = user ? await bcrypt.compare(dto.password, user.passwordHash) : false;
+    // Always run a compare (against a dummy hash for unknown emails) so response time doesn't reveal which emails exist.
+    const valid = await bcrypt.compare(dto.password, user?.passwordHash ?? DUMMY_HASH);
     if (!user || !valid) {
       this.recordFailure(key);
       this.logger.warn(`Login failed for ${dto.email}`);
