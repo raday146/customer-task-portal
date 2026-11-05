@@ -76,4 +76,7 @@ model Task {
   assignee    User?      @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, status])
+  @@index([tenantId, assigneeId])
+  @@index([tenantId, customerId])
+  @@index([tenantId, dueDate])
 }
