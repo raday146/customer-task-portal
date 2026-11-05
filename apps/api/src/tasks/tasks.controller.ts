@@ -46,8 +46,12 @@ export class TasksController {
   }
 
   @Patch(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateTaskDto) {
-    return this.tasksService.update(id, dto);
+  update(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateTaskDto,
+  ) {
+    return this.tasksService.update(user, id, dto);
   }
 
   @Delete(':id')

@@ -27,7 +27,7 @@ export class AuthService {
 
     const valid = user ? await bcrypt.compare(dto.password, user.passwordHash) : false;
     if (!user || !valid) {
-      this.logger.warn(`Login failed: ${JSON.stringify(dto)}`);
+      this.logger.warn(`Login failed for ${dto.email}`);
       throw new UnauthorizedException('Invalid email or password');
     }
 

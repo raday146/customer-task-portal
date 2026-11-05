@@ -17,7 +17,7 @@ export class CustomersController {
 
   @Get(':id')
   async findOne(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    const customer = await this.customersService.findOne(id);
+    const customer = await this.customersService.findOne(user.tenantId, id);
     const neighbours = await this.customersService.findNeighbours(user.tenantId, customer.name);
     return { ...customer, ...neighbours };
   }

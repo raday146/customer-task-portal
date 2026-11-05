@@ -66,6 +66,23 @@ describe('AuthService', () => {
     expect(jwt.signAsync).not.toHaveBeenCalled();
   });
 
+  it('never writes the submitted password to the logs on a failed login', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    const log = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+    const secret = 'S3cret-attempt!';
+    prisma.user.findUnique.mockResolvedValue(user);
+
+    await expect(
+      service.login({ email: 'admin@northstar.test', password: secret }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    const logged = JSON.stringify([...warn.mock.calls, ...log.mock.calls]);
+    expect(warn).toHaveBeenCalled();
+    expect(logged).not.toContain(secret);
+    warn.mockRestore();
+    log.mockRestore();
+  });
+
   it('rejects an unknown email', async () => {
     prisma.user.findUnique.mockResolvedValue(null);
     await expect(

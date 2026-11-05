@@ -42,9 +42,9 @@ export class CustomersService {
     return { items, total, page, pageSize };
   }
 
-  async findOne(id: string) {
-    const customer = await this.prisma.customer.findUnique({
-      where: { id },
+  async findOne(tenantId: string, id: string) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id, tenantId },
       include: { _count: { select: { tasks: true } } },
     });
     if (!customer) throw new NotFoundException('Customer not found');
