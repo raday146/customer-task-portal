@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuthUser, Paginated } from '../common/types';
 import { PrismaService } from '../prisma/prisma.service';
@@ -38,19 +38,8 @@ export class TasksService {
   }
 
   async create(user: AuthUser, dto: CreateTaskDto) {
-    const customer = await this.prisma.customer.findFirst({
-      where: { id: dto.customerId, tenantId: user.tenantId },
-      select: { id: true },
-    });
-    if (!customer) throw new TaskRuleError('Customer does not exist');
-
-    if (dto.assigneeId) {
-      const assignee = await this.prisma.user.findFirst({
-        where: { id: dto.assigneeId, tenantId: user.tenantId },
-        select: { id: true },
-      });
-      if (!assignee) throw new TaskRuleError('Assignee must be a member of your company');
-    }
+    const referenceError = await this.findReferenceError(user.tenantId, dto);
+    if (referenceError) throw new TaskRuleError(referenceError);
 
     if (dto.dueDate && new Date(dto.dueDate) < startOfToday()) {
       throw new TaskRuleError('Due date cannot be in the past');
@@ -77,15 +66,44 @@ export class TasksService {
     });
     if (!existing) throw new NotFoundException('Task not found');
 
+    const referenceError = await this.findReferenceError(user.tenantId, changes);
+    if (referenceError) throw new BadRequestException(referenceError);
+
     return this.prisma.task.update({
       where: { id },
       data: {
-        ...changes,
+        title: changes.title ?? undefined,
+        description: changes.description ?? undefined,
+        customerId: changes.customerId ?? undefined,
+        assigneeId: changes.assigneeId,
+        status: changes.status ?? undefined,
         dueDate:
           changes.dueDate === undefined ? undefined : changes.dueDate && new Date(changes.dueDate),
       },
       include: taskInclude,
     });
+  }
+
+  /** Returns a message when a referenced customer/assignee is not in the caller's tenant. */
+  private async findReferenceError(
+    tenantId: string,
+    refs: { customerId?: string | null; assigneeId?: string | null },
+  ): Promise<string | null> {
+    if (refs.customerId) {
+      const customer = await this.prisma.customer.findFirst({
+        where: { id: refs.customerId, tenantId },
+        select: { id: true },
+      });
+      if (!customer) return 'Customer does not exist';
+    }
+    if (refs.assigneeId) {
+      const assignee = await this.prisma.user.findFirst({
+        where: { id: refs.assigneeId, tenantId },
+        select: { id: true },
+      });
+      if (!assignee) return 'Assignee must be a member of your company';
+    }
+    return null;
   }
 
   async remove(user: AuthUser, id: string) {
