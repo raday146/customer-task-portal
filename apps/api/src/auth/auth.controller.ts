@@ -1,11 +1,20 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Ip, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Ip, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../common/types';
-import { AuthService } from './auth.service';
+import { AuthService, UserWithTenant } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
-import { Response } from 'express';
+import { Request, Response } from 'express';
+import { AuthGuard } from '@nestjs/passport';
 
+
+const cookieOptions = {
+  httpOnly: true,
+  sameSite: 'strict' as const,
+  secure: process.env.NODE_ENV === 'production',
+  path: '/api/auth',
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+};
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -14,16 +23,29 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async login(@Body() dto: LoginDto, @Ip() ip: string, @Res({ passthrough: true })  res: Response) {
     const result = await this.authService.login(dto, ip);
-    res.cookie('refreshToken', result.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite:'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    res.cookie('refreshToken', result.refreshToken, cookieOptions);
     return {
     accessToken: result.accessToken,
     user: result.user,
   };
+  }
+
+@UseGuards(AuthGuard('jwt-refresh'))
+  @Post('refresh')
+  async refresh(
+    @Req() req: Request, 
+    @Res({ passthrough: true }) res: Response
+  ) {
+    const user = req.user as UserWithTenant; 
+
+    const result = await this.authService.refreshTokens(user);
+
+    res.cookie('refreshToken', result.refreshToken, cookieOptions);
+
+    return {
+      accessToken: result.accessToken,
+      user: result.user,
+    };
   }
 
   @Get('me')
