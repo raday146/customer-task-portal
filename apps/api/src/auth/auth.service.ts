@@ -11,14 +11,24 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
+import { Prisma } from '@prisma/client';
 
 // Valid bcrypt hash of a random string; never matches a real password.
 const DUMMY_HASH = bcrypt.hashSync(randomUUID(), 10);
 
+export type UserWithTenant = Prisma.UserGetPayload<{
+  include: { tenant: true };
+}>;
 export interface JwtPayload {
   sub: string;
   tenantId: string;
   role: string;
+  var: number;
+}
+export interface RefreshPayload {
+  sub: string;
+  var: number;
+  type: 'refresh';
 }
 
 @Injectable()
@@ -39,6 +49,21 @@ export class AuthService {
    */
   private readonly failures = new Map<string, { count: number; windowStart: number }>();
 
+  private async issueTokens(payload: JwtPayload) {
+    const refreshPayload: RefreshPayload = {...payload, type: 'refresh'};
+
+   const [accessToken, refreshToken] = await Promise.all([
+    this.jwt.signAsync(payload, { 
+        secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
+        expiresIn: '15m'
+      }),
+      this.jwt.signAsync(refreshPayload, { 
+        secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
+        expiresIn: '7d'
+      }),
+    ]);
+    return { accessToken, refreshToken };
+  }
   async login(dto: LoginDto, ip: string) {
     const email = dto.email.toLowerCase();
     const key = `${ip}|${email}`;
@@ -57,17 +82,56 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    this.failures.delete(key);
-    const payload: JwtPayload = { sub: user.id, tenantId: user.tenantId, role: user.role };
-    const accessToken = await this.jwt.signAsync(payload);
-    this.logger.log(`User ${user.id} signed in (tenant ${user.tenantId})`);
+  this.failures.delete(key);
+  
+  const jwtPayload = { 
+    sub: user.id, 
+    tenantId: user.tenantId, 
+    role: user.role, 
+    var: user.var.toNumber() 
+  };
 
+  const { accessToken, refreshToken } = await this.issueTokens(jwtPayload);
+
+  this.logger.log(`User ${user.id} signed in (tenant ${user.tenantId})`);
     return {
       accessToken,
+      refreshToken,
       user: this.toProfile(user),
     };
   }
+async refreshTokens(user: UserWithTenant) {
+    const jwtPayload: JwtPayload = { 
+      sub: user.id, 
+      tenantId: user.tenantId, 
+      role: user.role, 
+      var: user.var.toNumber() 
+    };
 
+    const tokens = await this.issueTokens(jwtPayload);
+    
+    return { 
+      ...tokens, 
+      user: this.toProfile(user) 
+    };
+  }
+
+ // auth.service.ts
+  async logout(userId: string) {
+    try {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          var: { increment: 1 },
+        },
+      });
+      this.logger.log(`User ${userId} logged out (tokens revoked)`);
+    } catch (error) {
+      this.logger.warn(`Logout failed silently: User ${userId} not found in DB`);
+    }
+
+    return { success: true };
+  }
   /** Returns the live entry for `key`, pruning it (and any other expired entry) first. */
   private liveEntry(key: string): { count: number; windowStart: number } | undefined {
     const windowMs = Number(this.config.get('LOGIN_WINDOW_MS', 15 * 60 * 1000));

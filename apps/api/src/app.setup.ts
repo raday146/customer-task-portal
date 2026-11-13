@@ -1,6 +1,7 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { RequestLoggingInterceptor } from './common/interceptors/request-logging.interceptor';
+import cookieParser from 'cookie-parser';
 
 /** Shared configuration used by main.ts and the e2e tests. */
 export function configureApp(app: INestApplication): INestApplication {
@@ -12,6 +13,7 @@ export function configureApp(app: INestApplication): INestApplication {
       transform: true,
     }),
   );
+  app.use(cookieParser());
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new RequestLoggingInterceptor());
   return app;

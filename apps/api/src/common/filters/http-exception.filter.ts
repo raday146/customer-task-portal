@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { Request, Response } from 'express';
 
 /**
@@ -34,6 +35,20 @@ export class HttpExceptionFilter implements ExceptionFilter {
         const b = body as { message?: string | string[]; error?: string };
         message = b.message ?? exception.message;
         error = b.error ?? exception.name;
+      }
+    }
+    else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+
+      const map: Record<string, [number, string, string]> = {
+        P2025: [404, 'Not Found', 'Record not found'],
+        P2003: [400, 'Bad Request', 'Invalid reference'],
+        P2002: [409, 'Conflict', 'Record already exists'],
+      };
+      const mapped = map[exception.code];
+      if (mapped) {
+        [status, error, message] = mapped;
+      } else {
+        this.logger.error(`Prisma error ${exception.code} on ${request.method} ${request.url}`, exception.stack);
       }
     } else {
       this.logger.error(
