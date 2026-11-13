@@ -13,7 +13,7 @@ import { RefreshTokenStrategy } from './strategies/refersh-token.strategy';
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.getOrThrow<string>('JWT_SECRET'),
+        secret: config.getOrThrow<string>('JWT_ACCESS_SECRET'),
         signOptions: { expiresIn: config.get<string>('JWT_EXPIRES_IN', '8h') },
       }),
     }),

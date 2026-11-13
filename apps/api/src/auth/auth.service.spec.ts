@@ -2,6 +2,7 @@ import { Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
+import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from './auth.service';
@@ -23,6 +24,7 @@ describe('AuthService', () => {
     name: 'Olivia Hart',
     email: 'admin@northstar.test',
     role: 'ADMIN',
+    var: new Prisma.Decimal(1),
     passwordHash: bcrypt.hashSync('DemoPass123!', 4),
     tenant: { id: 'tenant-1', name: 'Northstar Consulting' },
   };
@@ -36,7 +38,7 @@ describe('AuthService', () => {
         AuthService,
         { provide: PrismaService, useValue: prisma },
         { provide: JwtService, useValue: jwt },
-        { provide: ConfigService, useValue: { get: (_k: string, d: unknown) => d } },
+        { provide: ConfigService, useValue: { get: (_k: string, d: unknown) => d, getOrThrow: (k: string) => `${k}-value` } },
       ],
     }).compile();
     service = moduleRef.get(AuthService);
@@ -53,11 +55,12 @@ describe('AuthService', () => {
     expect(prisma.user.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { email: 'admin@northstar.test' } }),
     );
-    expect(jwt.signAsync).toHaveBeenCalledWith({
-      sub: 'user-1',
-      tenantId: 'tenant-1',
-      role: 'ADMIN',
-    });
+    const payload = { sub: 'user-1', tenantId: 'tenant-1', role: 'ADMIN', var: 1 };
+    expect(jwt.signAsync).toHaveBeenCalledWith(payload, expect.objectContaining({ expiresIn: '15m' }));
+    expect(jwt.signAsync).toHaveBeenCalledWith(
+      { ...payload, type: 'refresh' },
+      expect.objectContaining({ expiresIn: '7d' }),
+    );
     expect(result.accessToken).toBe('signed-token');
     expect(result.user).toEqual({
       id: 'user-1',

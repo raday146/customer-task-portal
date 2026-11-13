@@ -3,14 +3,12 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { Request } from 'express';
 import {  RefreshPayload } from '../auth.service';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class RefreshTokenStrategy extends PassportStrategy(Strategy, 'jwt-refresh') {
-  constructor(private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
-  ) {
+  constructor(private readonly prisma: PrismaService, config: ConfigService) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
         (request: Request) => {
@@ -29,7 +27,7 @@ export class RefreshTokenStrategy extends PassportStrategy(Strategy, 'jwt-refres
       throw new UnauthorizedException('Invalid token type');
     }
     
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, include: { tenant: true } });
 
     if (!user || user.var.toNumber() !==  tokenVersionFromToken) {
       throw new UnauthorizedException('Refresh token is invalid or has been revoked');
